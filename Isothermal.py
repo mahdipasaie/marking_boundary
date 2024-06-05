@@ -715,7 +715,9 @@ def Value_Coor_dof(solution_vector_pf, spaces_pf, comm):
     v_phi = spaces_pf[0]
     (phi, u) = solution_vector_pf.split(deepcopy=True)
     coordinates_of_all = v_phi.tabulate_dof_coordinates()
-    phi_value_on_dof = phi.vector().get_local()
+    # phi_value_on_dof = phi.vector().get_local()
+    grad_Phi = project(fe.sqrt(fe.dot(grad(phi), grad(phi))), v_phi)
+    phi_value_on_dof = grad_Phi.vector().get_local()
 
     all_Val_dof = comm.gather(phi_value_on_dof, root=0)
     all_point = comm.gather(coordinates_of_all, root=0)
@@ -736,7 +738,7 @@ def Value_Coor_dof(solution_vector_pf, spaces_pf, comm):
 def coordinates_of_marking(solution_vector_pf, spaces_pf, comm):
     """Get the small mesh and return coordinates of the interface."""
     dof_value, dof_Coor = Value_Coor_dof(solution_vector_pf, spaces_pf, comm)
-    Index_list = np.concatenate(np.argwhere(dof_value > 0.99))
+    Index_list = np.concatenate(np.argwhere(dof_value > 0.001))
     list_coordinate_points = dof_Coor[Index_list]
     return list_coordinate_points
 
@@ -760,19 +762,37 @@ def mark_mesh(mesh, solution_vector_pf, spaces_pf, comm):
 
     return mf
 
+
+def apply_bc(solid_markers, mesh):
+    # Define the solid region
+    # Create a MeshFunction to mark the facets (boundaries) of the solid region
+    facet_markers = fe.MeshFunction("size_t", mesh, mesh.topology().dim() - 1, 0)
+    for facet in fe.facets(mesh):
+        cells = [cell for cell in fe.cells(facet)]
+        if any(solid_markers[cell.index()] == 1 for cell in cells):
+            facet_markers[facet] = 1
+    # Apply the Dirichlet boundary condition
+    facet_markers
+    return facet_markers
+
+
+
+
 mf = mark_mesh(mesh, solution_vector_0, spaces, comm)
 
 
-
+facet_markers = apply_bc(mf, mesh)
 # indicator_function = create_indicator_function(mesh, mf,  spaces[0])
 
 (phi, u) = solution_vector_0.split(deepcopy=True)
 xdmf_file = fe.XDMFFile("solid_boundary_markers.xdmf")
 xdmf_file.parameters["rewrite_function_mesh"] = True
 xdmf_file.parameters["flush_output"] = True
-xdmf_file.parameters["functions_share_mesh"] = True
-mf.rename("Solid Boundary", "Solid Boundary")
-xdmf_file.write(mf)
+xdmf_file.parameters["functions_share_mesh"] = False
+# mf.rename("Solid Boundary", "Solid Boundary")
+# xdmf_file.write(mf)
+xdmf_file.write(facet_markers)
+
 # phi.rename("Phi", "Phi")
 # xdmf_file.write(phi,0)
 xdmf_file.close()
